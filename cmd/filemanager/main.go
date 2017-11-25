@@ -25,6 +25,7 @@ import (
 
 var (
 	addr            string
+	unix            string
 	config          string
 	database        string
 	scope           string
@@ -50,6 +51,7 @@ func init() {
 	flag.StringVarP(&config, "config", "c", "", "Configuration file")
 	flag.IntVarP(&port, "port", "p", 0, "HTTP Port (default is random)")
 	flag.StringVarP(&addr, "address", "a", "", "Address to listen to (default is all of them)")
+	flag.StringVarP(&unix, "unix-socket", "", "", "Create Unix socket at specified location - will ignore HTTP options")
 	flag.StringVarP(&database, "database", "d", "./filemanager.db", "Database file")
 	flag.StringVarP(&logfile, "log", "l", "stdout", "Errors logger; can use 'stdout', 'stderr' or file")
 	flag.StringVarP(&scope, "scope", "s", ".", "Default scope option for new users")
@@ -72,6 +74,7 @@ func init() {
 func setupViper() {
 	viper.SetDefault("Address", "")
 	viper.SetDefault("Port", "0")
+	viper.SetDefault("UnixSocket", "")
 	viper.SetDefault("Database", "./filemanager.db")
 	viper.SetDefault("Scope", ".")
 	viper.SetDefault("Logger", "stdout")
@@ -91,6 +94,7 @@ func setupViper() {
 
 	viper.BindPFlag("Port", flag.Lookup("port"))
 	viper.BindPFlag("Address", flag.Lookup("address"))
+	viper.BindPFlag("UnixSocket", flag.Lookup("unix-socket"))
 	viper.BindPFlag("Database", flag.Lookup("database"))
 	viper.BindPFlag("Scope", flag.Lookup("scope"))
 	viper.BindPFlag("Logger", flag.Lookup("log"))
@@ -165,8 +169,18 @@ func main() {
 	}
 
 	// Builds the address and a listener.
-	laddr := viper.GetString("Address") + ":" + viper.GetString("Port")
-	listener, err := net.Listen("tcp", laddr)
+	var listener net.Listener
+	unix := viper.GetString("UnixSocket")
+	if unix == "" {
+		laddr := viper.GetString("Address") + ":" + viper.GetString("Port")
+		listener, err = net.Listen("tcp", laddr)
+	} else {
+		// Support for Unix sockets is [glitchy](https://forum.golangbridge.org/t/bind-address-already-in-use-even-after-listener-closed/1510)
+		// so we'll recreate the socket in case we didn't close it last time we run.
+		os.Remove(unix)
+		listener, err = net.Listen("unix", unix)
+	}
+
 	if err != nil {
 		log.Fatal(err)
 	}
